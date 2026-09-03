@@ -6,8 +6,10 @@ import org.apache.kafka.common.serialization.StringSerializer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.time.Duration
 import io.circe.parser.decode
+import scala.collection.mutable.HashMap
+import java.net.http.HttpClient
 
-object Service {
+object Main {
 
     private val running = new AtomicBoolean(true)
     val consumer: KafkaConsumer[String, String] = {
@@ -28,14 +30,33 @@ object Service {
         new KafkaProducer[String, String](props)
     }
 
+
+    val endpoints: HashMap[String, Provider] = HashMap(
+        "ollama" -> new OllamaProvider(Config.ollamaBaseUrl)
+    )
+
+    implicit val client: HttpClient = HttpClient.newBuilder().build()
+
+
     def main(args: Array[String]): Unit = {
+
+        consumer.subscribe(java.util.List.of(Config.queryTopic))
+
+        if (Config.apiServerEnabled) APIBridge.start(producer)
 
         while (running.get()) {
             consumer.poll(java.time.Duration.ofMillis(1000)).forEach { record =>
                 decode[Message](record.value()) match {
-                case Right(message) => handleMessage(message)
+                case Right(message) => try {
+                    handleMessage(message)
+                } catch {
+                    case e: Exception => {
+                        println(s"Error handling message: ${e.getMessage}")
+                    }
+                }
                 case Left(err) =>
-                    //todo        
+                    running.set(false)
+                    throw new RuntimeException(s"Failed to decode message: $err")      
                 }
             }
         }
@@ -44,11 +65,15 @@ object Service {
     def handleMessage(message: Message): Unit = {
         message match {
             case query: Query => {
-                val thread = new Thread(new QueryHandler(query, producer, consumer))
+                val providerName = query.model.split("/", 2).headOption.getOrElse(throw new RuntimeException(s"Invalid model name: ${query.model}"))
+                val modelName = query.model.split("/", 2).lastOption.getOrElse(throw new RuntimeException(s"Invalid model name: ${query.model}"))
+                val provider = endpoints.getOrElse(providerName, throw new RuntimeException(s"Unknown provider: $providerName"))
+
+                val thread = new Thread(new QueryHandler(query, producer, consumer, provider))
                 thread.setDaemon(true)
                 thread.start()  
             }
-            case _ => // todo
+            case _ => throw new RuntimeException(s"Unknown message type: ${message.getClass.getSimpleName}")
         }
     }
 }
