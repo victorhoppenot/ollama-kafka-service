@@ -1,0 +1,10 @@
+target/
+project/target/
+project/project/
+.bloop/
+.metals/
+.bsp/
+.vscode/
+.git/
+.gitignore
+.DS_Store
