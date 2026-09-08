@@ -69,7 +69,9 @@ object Main {
                 val modelName = query.model.split("/", 2).lastOption.getOrElse(throw new RuntimeException(s"Invalid model name: ${query.model}"))
                 val provider = endpoints.getOrElse(providerName, throw new RuntimeException(s"Unknown provider: $providerName"))
 
-                val thread = new Thread(new QueryHandler(query, producer, consumer, provider))
+                val new_query: Query = query.copy(query = provider.insertModelIntoPayload(modelName, query.query))
+
+                val thread = new Thread(new QueryHandler(new_query, producer, consumer, provider))
                 thread.setDaemon(true)
                 thread.start()  
             }

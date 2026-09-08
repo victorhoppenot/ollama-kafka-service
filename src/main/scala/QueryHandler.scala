@@ -17,7 +17,6 @@ class QueryHandler(val query: Query, producer: KafkaProducer[String, String], co
     implicit val responseEncoder: Encoder[Response] = deriveEncoder[Response]
 
     override def run(): Unit = {
-
         val response = provider.query(query)
         producer.send(new ProducerRecord(Config.responseTopic, query.id, response.asJson.noSpaces))
         producer.flush()
