@@ -13,7 +13,7 @@ import io.circe.Decoder
 import io.circe.DecodingFailure
 import java.net.http.HttpClient
 
-class QueryHandler(val query: Query, producer: KafkaProducer[String, String], consumer: KafkaConsumer[String, String], provider: Provider)(implicit client: HttpClient) extends Runnable{
+class QueryHandler(val query: Query, producer: KafkaProducer[String, String], provider: Provider, onCompleted: () => Unit)(implicit client: HttpClient) extends Runnable{
     implicit val responseEncoder: Encoder[Response] = deriveEncoder[Response]
 
     override def run(): Unit = {
@@ -21,6 +21,6 @@ class QueryHandler(val query: Query, producer: KafkaProducer[String, String], co
         producer.send(new ProducerRecord(Config.responseTopic, query.id, response.asJson.noSpaces))
         producer.flush()
 
-        consumer.commitSync()
+        onCompleted()
     }
 }

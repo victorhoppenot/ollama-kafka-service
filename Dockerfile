@@ -24,7 +24,7 @@ ENV API_SERVER_PORT=8080
 WORKDIR /app
 
 COPY --from=build /build/app.jar ./app.jar
-COPY endpoints.json entrypoint.sh ./
+COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 
 EXPOSE 11434 8080

@@ -1,4 +1,6 @@
-import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
+import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetAndMetadata}
+import org.apache.kafka.common.TopicPartition
+import java.util.concurrent.ConcurrentLinkedQueue
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import java.util.Properties
 import org.apache.kafka.common.serialization.StringDeserializer
@@ -48,7 +50,7 @@ object Main {
             consumer.poll(java.time.Duration.ofMillis(1000)).forEach { record =>
                 decode[Message](record.value()) match {
                 case Right(message) => try {
-                    handleMessage(message)
+                    handleMessage(message, new TopicPartition(record.topic(), record.partition()), record.offset() + 1)
                 } catch {
                     case e: Exception => {
                         println(s"Error handling message: ${e.getMessage}")
@@ -59,10 +61,27 @@ object Main {
                     throw new RuntimeException(s"Failed to decode message: $err")      
                 }
             }
+            commitCompleted()
         }
     }
 
-    def handleMessage(message: Message): Unit = {
+    val completed = new ConcurrentLinkedQueue[(TopicPartition, OffsetAndMetadata)]()
+
+    def commitCompleted(): Unit = {
+        val offsets = new java.util.HashMap[TopicPartition, OffsetAndMetadata]()
+        var entry = completed.poll()
+        while (entry != null) {
+            val (partition, offset) = entry
+            Option(offsets.get(partition)) match {
+                case Some(seen) if seen.offset() >= offset.offset() => ()
+                case _ => offsets.put(partition, offset)
+            }
+            entry = completed.poll()
+        }
+        if (!offsets.isEmpty) consumer.commitSync(offsets)
+    }
+
+    def handleMessage(message: Message, partition: TopicPartition, nextOffset: Long): Unit = {
         message match {
             case query: Query => {
                 val providerName = query.model.split("/", 2).headOption.getOrElse(throw new RuntimeException(s"Invalid model name: ${query.model}"))
@@ -71,7 +90,9 @@ object Main {
 
                 val new_query: Query = query.copy(query = provider.insertModelIntoPayload(modelName, query.query))
 
-                val thread = new Thread(new QueryHandler(new_query, producer, consumer, provider))
+                val thread = new Thread(new QueryHandler(new_query, producer, provider, () =>
+                    completed.add(partition -> new OffsetAndMetadata(nextOffset))
+                ))
                 thread.setDaemon(true)
                 thread.start()  
             }
