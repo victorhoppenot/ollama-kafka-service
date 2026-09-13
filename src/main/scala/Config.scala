@@ -6,6 +6,7 @@ import java.nio.file.{Files, Paths}
 
 object Config {
   val ollamaBaseUrl: String = sys.env.getOrElse("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+  val llamaBaseUrl: String  = sys.env.getOrElse("LLAMA_BASE_URL", "http://127.0.0.1:8000")
   val brokers: String       = sys.env.getOrElse("KAFKA_BROKER_URL", "broker:29092")
   val groupId = sys.env.getOrElse("KAFKA_GROUP_ID", "llm-service")
   val queryTopic: String  = sys.env.getOrElse("KAFKA_TOPIC", "llm-requests")

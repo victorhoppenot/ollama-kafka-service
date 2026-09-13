@@ -34,7 +34,8 @@ object Main {
 
 
     val endpoints: HashMap[String, Provider] = HashMap(
-        "ollama" -> new OllamaProvider(Config.ollamaBaseUrl)
+        "ollama" -> new OllamaProvider(Config.ollamaBaseUrl),
+        "llama"  -> new LlamaCppProvider(Config.llamaBaseUrl)
     )
 
     implicit val client: HttpClient = HttpClient.newBuilder().build()
