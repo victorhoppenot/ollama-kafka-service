@@ -15,4 +15,5 @@ object Config {
   val apiServerHost: String = sys.env.getOrElse("API_SERVER_HOST", "0.0.0.0")
   val apiServerPort: Int    = sys.env.getOrElse("API_SERVER_PORT", "8080").toInt
   val apiRequestTimeoutSeconds: Long = sys.env.getOrElse("API_REQUEST_TIMEOUT_SECONDS", "300").toLong
+  val apiConsumerCheckTimeoutMs: Int = sys.env.getOrElse("API_CONSUMER_CHECK_TIMEOUT_MS", "5000").toInt
 }

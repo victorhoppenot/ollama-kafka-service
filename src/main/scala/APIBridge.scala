@@ -1,5 +1,7 @@
+import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, DescribeConsumerGroupsOptions}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
+import org.apache.kafka.common.errors.GroupIdNotFoundException
 import org.apache.kafka.common.serialization.StringDeserializer
 
 import org.apache.pekko.actor.typed.ActorSystem
@@ -46,6 +48,12 @@ object APIBridge {
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest")
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true")
         new KafkaConsumer[String, String](props)
+    }
+
+    private val admin: Admin = {
+        val props = new Properties()
+        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, Config.brokers)
+        Admin.create(props)
     }
 
     private val timeouts = Executors.newSingleThreadScheduledExecutor { r =>
@@ -104,22 +112,48 @@ object APIBridge {
                                         endpoint = path.toString.stripPrefix("/"),
                                         query = payload
                                     )
-                                    complete(submit(query, producer).transform {
-                                        case Success(response) =>
-                                            Success(HttpResponse(
-                                                StatusCodes.OK,
-                                                entity = HttpEntity(ContentTypes.`application/json`, response.response.noSpaces)
-                                            ))
-                                        case Failure(_: TimeoutException) =>
-                                            Success(error(StatusCodes.GatewayTimeout, "timed out waiting for a response"))
-                                        case Failure(e) =>
-                                            Success(error(StatusCodes.InternalServerError, e.getMessage))
+                                    complete(hasConsumers().flatMap {
+                                        case false =>
+                                            Future.successful(error(StatusCodes.ServiceUnavailable, "no consumers available"))
+                                        case true =>
+                                            submit(query, producer).transform {
+                                                case Success(response) =>
+                                                    Success(HttpResponse(
+                                                        StatusCodes.OK,
+                                                        entity = HttpEntity(ContentTypes.`application/json`, response.response.noSpaces)
+                                                    ))
+                                                case Failure(_: TimeoutException) =>
+                                                    Success(error(StatusCodes.GatewayTimeout, "timed out waiting for a response"))
+                                                case Failure(e) =>
+                                                    Success(error(StatusCodes.InternalServerError, e.getMessage))
+                                            }
                                     })
                             }
                     }
                 }
             }
         }
+    }
+
+    private def hasConsumers(): Future[Boolean] = {
+        val promise = Promise[Boolean]()
+        admin
+            .describeConsumerGroups(
+                java.util.List.of(Config.groupId),
+                new DescribeConsumerGroupsOptions().timeoutMs(Config.apiConsumerCheckTimeoutMs)
+            )
+            .describedGroups()
+            .get(Config.groupId)
+            .whenComplete { (group, e) =>
+                if (e == null) promise.trySuccess(!group.members().isEmpty)
+                else if (e.isInstanceOf[GroupIdNotFoundException] || e.getCause.isInstanceOf[GroupIdNotFoundException])
+                    promise.trySuccess(false)
+                else {
+                    println(s"api bridge: failed to check for consumers: ${e.getMessage}")
+                    promise.trySuccess(true)
+                }
+            }
+        promise.future
     }
 
     private def submit(query: Query, producer: KafkaProducer[String, String]): Future[Response] = {
